@@ -1,107 +1,139 @@
+// Contract based on https://docs.openzeppelin.com/contracts/3.x/erc721
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
-import "@openzeppelin/contracts/utils/structs/EnumerableMap.sol";
-import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/Strings.sol";
 
-contract META_COCKTAIL_Nft is ERC721Enumerable, Ownable, ReentrancyGuard {
-    using SafeMath for uint256;
+contract Meta_cocktail is ERC721Enumerable, Ownable {
+    using Strings for uint256;
 
-    bool public isSaleActive = false;
-    string public PROVENANCE = "-";
-    uint public constant maxMintBatch = 20;
-    uint256 public constant tokenPrice = 10000000000000000; // 出售的价格0.01 ETH
-    uint256 public maxTokensCount = 11111;
-    address[] private distributions;
-    string private baseURI;
-    string public baseTokenURI;
-    string public contractURI;
+    bool public _isSaleActive = false;
+    bool public _revealed = false;
 
-    constructor() ERC721("erwaplayblockchain", "BLO") {
-        baseURI = "ipfs://QmUEJzKyAH8mXXsActmiWrjJgYL8kV6ffPAX9qMvBaHpvz/"; // baseURI
-        baseTokenURI = "https://angelicrealm.angelsofaether.com/aoagencontif4hw377/AngelsOfAetherGeneral.json";
-        contractURI = "";
+    // Constants
+    uint256 public constant MAX_SUPPLY = 10;
+    uint256 public mintPrice = 0.003 ether;
+    uint256 public maxBalance = 1;
+    uint256 public maxMint = 1;
+
+    string baseURI;
+    string public notRevealedUri;
+    string public baseExtension = ".json";
+
+    mapping(uint256 => string) private _tokenURIs;
+
+    constructor(string memory initBaseURI, string memory initNotRevealedUri)
+        ERC721("Meta_cocktail", "MC")
+    {
+        setBaseURI(initBaseURI);
+        setNotRevealedURI(initNotRevealedUri);
     }
 
-    function setDistributions(address[] memory _distributions) public onlyOwner {
-        distributions = _distributions;
+    function mintMeta_cocktail(uint256 tokenQuantity) public payable {
+        require(
+            totalSupply() + tokenQuantity <= MAX_SUPPLY,
+            "Sale would exceed max supply"
+        );
+        require(_isSaleActive, "Sale must be active to mint Meta_cocktail");
+        require(
+            balanceOf(msg.sender) + tokenQuantity <= maxBalance,
+            "Sale would exceed max balance"
+        );
+        require(
+            tokenQuantity * mintPrice <= msg.value,
+            "Not enough ether sent"
+        );
+        require(tokenQuantity <= maxMint, "Can only mint 1 tokens at a time");
+
+        _mintMeta_cocktail(tokenQuantity);
     }
 
-    function getDistributions() public onlyOwner view returns (address[] memory) {
-        return distributions;
-    }
-
-    function activateSale() public onlyOwner {
-        isSaleActive = true;
-    }
-
-    function deactivateSale() public onlyOwner {
-        isSaleActive = false;
-    }
-
-    function setBaseTokenURI(string memory uri) public onlyOwner {
-        baseTokenURI = uri;
-    }
-
-    function setContractURI(string memory uri) public onlyOwner {
-        contractURI = uri;
-    }
-
-    function _baseURI() internal view override returns (string memory) {
-        return baseURI;
-    }
-
-    function setBaseURI(string memory uri) public onlyOwner {
-        baseURI = uri;
-    }
-
-    function setPROVENANCE(string memory prov) public onlyOwner {
-        PROVENANCE = prov;
-    }
-
-    function distribute(uint256 requestedSum) public onlyOwner {
-        require(distributions.length > 1, "Distributions cannot be empty");
-        uint balance = address(this).balance;
-        require(balance > requestedSum, "Requesting too much");
-
-        uint share = requestedSum / distributions.length;
-        for (uint i = 0; i < distributions.length; i++) {
-            payable(distributions[i]).transfer(share);
-        }
-    }
-
-    function withdraw() public onlyOwner {
-        uint balance = address(this).balance;
-        payable(msg.sender).transfer(balance);
-    }
-
-    function reserveAngelsOfAether() public onlyOwner {
-        uint supply = totalSupply();
-        uint i;
-        for (i = 0; i < maxMintBatch; i++) {
-            _safeMint(msg.sender, supply + i);
-        }
-    }
-
-    function mint(uint numberOfTokens) public payable {
-        require(isSaleActive, "Sale must be active to be able to mint");
-        require(numberOfTokens <= maxMintBatch, "Max 20 tokens can be minted in one batch");
-        require(totalSupply().add(numberOfTokens) <= maxTokensCount, "Purchase would exceed max supply of Tokens");
-        require(tokenPrice.mul(numberOfTokens) <= msg.value, "Ether value sent is not correct");
-
-        for(uint i = 0; i < numberOfTokens; i++) {
-            uint mintIndex = totalSupply();
-            if (totalSupply() < maxTokensCount) {
+    function _mintMeta_cocktail(uint256 tokenQuantity) internal {
+        for (uint256 i = 0; i < tokenQuantity; i++) {
+            uint256 mintIndex = totalSupply();
+            if (totalSupply() < MAX_SUPPLY) {
                 _safeMint(msg.sender, mintIndex);
             }
         }
     }
 
-    function burn(uint256 tokenId) public onlyOwner {
-        _burn(tokenId);
+    function tokenURI(uint256 tokenId)
+        public
+        view
+        virtual
+        override
+        returns (string memory)
+    {
+        require(
+            _exists(tokenId),
+            "ERC721Metadata: URI query for nonexistent token"
+        );
+
+        if (_revealed == false) {
+            return notRevealedUri;
+        }
+
+        string memory _tokenURI = _tokenURIs[tokenId];
+        string memory base = _baseURI();
+
+        // If there is no base URI, return the token URI.
+        if (bytes(base).length == 0) {
+            return _tokenURI;
+        }
+        // If both are set, concatenate the baseURI and tokenURI (via abi.encodePacked).
+        if (bytes(_tokenURI).length > 0) {
+            return string(abi.encodePacked(base, _tokenURI));
+        }
+        // If there is a baseURI but no tokenURI, concatenate the tokenID to the baseURI.
+        return
+            string(abi.encodePacked(base, tokenId.toString(), baseExtension));
+    }
+
+    // internal
+    function _baseURI() internal view virtual override returns (string memory) {
+        return baseURI;
+    }
+
+    //only owner
+    function flipSaleActive() public onlyOwner {
+        _isSaleActive = !_isSaleActive;
+    }
+
+    function flipReveal() public onlyOwner {
+        _revealed = !_revealed;
+    }
+
+    function setMintPrice(uint256 _mintPrice) public onlyOwner {
+        mintPrice = _mintPrice;
+    }
+
+    function setNotRevealedURI(string memory _notRevealedURI) public onlyOwner {
+        notRevealedUri = _notRevealedURI;
+    }
+
+    function setBaseURI(string memory _newBaseURI) public onlyOwner {
+        baseURI = _newBaseURI;
+    }
+
+    function setBaseExtension(string memory _newBaseExtension)
+        public
+        onlyOwner
+    {
+        baseExtension = _newBaseExtension;
+    }
+
+    function setMaxBalance(uint256 _maxBalance) public onlyOwner {
+        maxBalance = _maxBalance;
+    }
+
+    function setMaxMint(uint256 _maxMint) public onlyOwner {
+        maxMint = _maxMint;
+    }
+
+    function withdraw(address to) public onlyOwner {
+        uint256 balance = address(this).balance;
+        payable(to).transfer(balance);
     }
 }
